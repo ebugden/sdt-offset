@@ -12,9 +12,9 @@
  * Returns the offset on success,
  * Returns -1 in case of failure
  */
-static size_t convert_addr_to_offset(int fd, size_t addr)
+static long convert_addr_to_offset(int fd, size_t addr)
 {
-	size_t ret;
+	long ret;
 	int text_section_found;
 	size_t text_section_offset, text_section_addr, offset_in_section;
 	char *section_name;
@@ -91,9 +91,9 @@ err:
 	return ret;
 }
 
-size_t get_sdt_probe_offset(int fd, char *probe_name)
+long get_sdt_probe_offset(int fd, char *probe_name)
 {
-	size_t ret;
+	long ret;
 	char *section_name;
 	char *name;
 	Elf *elf_handle;
