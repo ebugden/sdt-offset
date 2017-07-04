@@ -24,21 +24,21 @@ static size_t convert_addr_to_offset(int fd, size_t addr)
 	GElf_Shdr elf_section_header;
 	
 	if (elf_version(EV_CURRENT) == EV_NONE) {
-		fprintf(stderr, "ELF library initialization failed: %s", elf_errmsg(-1));
+		fprintf(stderr, "ELF library initialization failed: %s.\n", elf_errmsg(-1));
 		ret = -1;
 		goto err;
 	}
 
 	elf_handle = elf_begin(fd, ELF_C_READ, NULL);
 	if (!elf_handle) {
-		fprintf (stderr , "elf_begin() failed: %s." , elf_errmsg(-1));
+		fprintf (stderr , "elf_begin() failed: %s.\n" , elf_errmsg(-1));
 		ret = -1; 
 		goto err;
 	}	
 
 	ret = elf_getshdrstrndx(elf_handle, &section_index);
 	if (ret) {
-		fprintf(stderr, "ELF get header index failed : %s", elf_errmsg(-1));
+		fprintf(stderr, "ELF get header index failed: %s.\n", elf_errmsg(-1));
 		ret = -1; 
 		goto err2;
 	}
@@ -59,7 +59,7 @@ static size_t convert_addr_to_offset(int fd, size_t addr)
 	}
 
 	if (!text_section_found) {
-		fprintf(stderr, "Text section not found in binary\n");
+		fprintf(stderr, "Text section not found in binary.\n");
 		ret = -1;
 		goto err2;
 	}
@@ -94,21 +94,21 @@ size_t get_sdt_probe_offset(int fd, char *probe_name)
 	Elf_Data *elf_data;
 
 	if (elf_version(EV_CURRENT) == EV_NONE) {
-		fprintf(stderr, "ELF library initialization failed: %s", elf_errmsg(-1));
+		fprintf(stderr, "ELF library initialization failed: %s.\n", elf_errmsg(-1));
 		ret = -1;
 		goto err;
 	}
 
 	elf_handle = elf_begin(fd, ELF_C_READ, NULL);
 	if (!elf_handle) {
-		fprintf (stderr , "elf_begin() failed: %s." , elf_errmsg (-1));
+		fprintf (stderr , "elf_begin() failed: %s.\n" , elf_errmsg (-1));
 		ret = -1; 
 		goto err;
 	}	
 
 	ret = elf_getshdrstrndx(elf_handle, &section_index);
 	if (ret) {
-		fprintf(stderr, "ELF get header index failed : %s", elf_errmsg(-1));
+		fprintf(stderr, "ELF get header index failed: %s.\n", elf_errmsg(-1));
 		ret = -1; 
 		goto err2;
 	}
