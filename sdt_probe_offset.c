@@ -156,10 +156,11 @@ size_t get_sdt_probe_offset(int fd, char *probe_name)
 		  offset = next) {
 			char *cdata = (char*)elf_data->d_buf;
 
-			union {
-				Elf64_Addr a64[3];
-				Elf32_Addr a32[3];
-			} buf;
+			/*
+			 * System is assumed to be 64 bit.
+			 * TODO Add support for 32 bit systems
+			 */
+			Elf64_Addr buf[3];
 
 			Elf_Data dst = {
 				&buf, ELF_T_ADDR, EV_CURRENT,
@@ -184,8 +185,8 @@ size_t get_sdt_probe_offset(int fd, char *probe_name)
 			char *provider = cdata + desc_offset + dst.d_size;
 			name = provider + strlen(provider) + 1;
 			
-			if ((ret = convert_addr_to_offset(fd, buf.a64[0])) == -1) {
-				fprintf(stderr, "Conversion from address to offset in binary failed. Address: %d\n", buf.a64[0]);
+			if ((ret = convert_addr_to_offset(fd, buf[0])) == -1) {
+				fprintf(stderr, "Conversion from address to offset in binary failed. Address: %lu\n", buf[0]);
 				ret = -1;
 				goto err2;
 			}
