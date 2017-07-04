@@ -47,8 +47,17 @@ static size_t convert_addr_to_offset(int fd, size_t addr)
 	text_section_found = 0;
 
 	while((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
-		gelf_getshdr(elf_section, &elf_section_header);
-		section_name = elf_strptr(elf_handle, section_index, elf_section_header.sh_name);
+		if (gelf_getshdr(elf_section, &elf_section_header) != &elf_section_header) {
+			fprintf(stderr, "GELF get section header failed: %s.\n", elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
+
+		if ((section_name = elf_strptr(elf_handle, section_index, elf_section_header.sh_name)) == NULL) {
+			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
 
 		if (strncmp(section_name, ".text", 5) == 0) {
 			text_section_offset = elf_section_header.sh_offset;
@@ -117,47 +126,68 @@ size_t get_sdt_probe_offset(int fd, char *probe_name)
 	elf_data = NULL;
 
 	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
-		gelf_getshdr(elf_section, &elf_section_header);
-		section_name = elf_strptr(elf_handle, section_index, elf_section_header.sh_name);
-		
-		if (strcmp(section_name, ".note.stapsdt") == 0) {
-			elf_data = elf_getdata(elf_section, NULL);
+		if (gelf_getshdr(elf_section, &elf_section_header) != &elf_section_header) {
+			fprintf(stderr, "GELF get section header failed: %s.\n", elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
 
-			size_t next;
-			GElf_Nhdr nhdr;
-			size_t name_offset;
-			size_t desc_offset;
+		if ((section_name = elf_strptr(elf_handle, section_index, elf_section_header.sh_name)) == NULL) {
+			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
+
+		if (strcmp(section_name, ".note.stapsdt") != 0) {
+			continue;
+		}
+
+		elf_data = elf_getdata(elf_section, NULL);
+
+		size_t next;
+		GElf_Nhdr nhdr;
+		size_t name_offset;
+		size_t desc_offset;
+
+		name = "";
+
+		for (size_t offset = 0;
+		  (next = gelf_getnote(elf_data, offset, &nhdr, &name_offset, &desc_offset)) > 0, strcmp(name, probe_name) != 0;
+		  offset = next) {
+			char *cdata = (char*)elf_data->d_buf;
+
+			union {
+				Elf64_Addr a64[3];
+				Elf32_Addr a32[3];
+			} buf;
+
+			Elf_Data dst = {
+				&buf, ELF_T_ADDR, EV_CURRENT,
+				gelf_fsize(elf_handle, ELF_T_ADDR, 3, EV_CURRENT), 0, 0
+			};
+
+			if (nhdr.n_descsz < dst.d_size + 3) {
+				continue;
+			}
+
+			Elf_Data src = {
+				cdata + desc_offset, ELF_T_ADDR, EV_CURRENT,
+				dst.d_size, 0, 0
+			};
+
+			if (gelf_xlatetom(elf_handle, &dst, &src, elf_getident(elf_handle, NULL)[EI_DATA]) == NULL) {
+				fprintf(stderr, "GELF Translation from file to memory representation failed: %s.\n", elf_errmsg(-1));
+				ret = -1;
+				goto err2;
+			}
+
+			char *provider = cdata + desc_offset + dst.d_size;
+			name = provider + strlen(provider) + 1;
 			
-			name = "";
-
-			for (size_t offset = 0;
-			  (next = gelf_getnote(elf_data, offset, &nhdr, &name_offset, &desc_offset)) > 0, strcmp(name, probe_name) != 0;
-			  offset = next) {
-				char *cdata = (char*)elf_data->d_buf;
-
-				union {
-					Elf64_Addr a64[3];
-					Elf32_Addr a32[3];
-				} buf; 
-				
-				Elf_Data dst = {
-					&buf, ELF_T_ADDR, EV_CURRENT,
-					gelf_fsize(elf_handle, ELF_T_ADDR, 3, EV_CURRENT), 0, 0
-				};
-
-				if (nhdr.n_descsz < dst.d_size + 3)
-					continue;
-
-				Elf_Data src = {
-					cdata + desc_offset, ELF_T_ADDR, EV_CURRENT,
-					dst.d_size, 0, 0
-				};
-
-				gelf_xlatetom(elf_handle, &dst, &src, elf_getident(elf_handle, NULL)[EI_DATA]);
-				
-				char *provider = cdata + desc_offset + dst.d_size;
-				name = provider + strlen(provider) + 1;
-				ret = convert_addr_to_offset(fd, buf.a64[0]);
+			if ((ret = convert_addr_to_offset(fd, buf.a64[0])) == -1) {
+				fprintf(stderr, "Conversion from address to offset in binary failed. Address: %d\n", buf.a64[0]);
+				ret = -1;
+				goto err2;
 			}
 		}
 	}
