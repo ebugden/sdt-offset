@@ -1,0 +1,12 @@
+# Object files
+*.o
+*.elf
+
+# Libraries
+*.lib
+*.a
+
+# Executables
+*.exe
+*.out
+*.hex
