@@ -116,6 +116,12 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 	GElf_Shdr elf_section_hdr;
 	Elf_Data *elf_data;
 
+	if (probe_name == NULL) {
+		fprintf(stderr, "Invalid probe name.\n");
+		ret = -1;
+		goto err;
+	}
+
 	if (elf_version(EV_CURRENT) == EV_NONE) {
 		fprintf(stderr,
 			"ELF library initialization failed: %s.\n", elf_errmsg(-1));
@@ -161,6 +167,11 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 		}
 
 		elf_data = elf_getdata(elf_section, NULL);
+		if (elf_data == NULL) {
+			fprintf(stderr, "ELF get data failed: %s.\n", elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
 
 		size_t next_note;
 		GElf_Nhdr note_hdr;
