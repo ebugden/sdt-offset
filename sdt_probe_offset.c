@@ -195,6 +195,11 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 				dst.d_size, 0, 0
 			};
 
+			/*
+			 * Translate ELF data to in-memory representation in order to
+			 * respect byte ordering and data alignment restrictions
+			 * of the host processor.
+			 */
 			char *elf_format = elf_getident(elf_handle, NULL);
 			if (gelf_xlatetom(elf_handle, &dst, &src, elf_format[EI_DATA]) == NULL) {
 				fprintf(stderr, "GELF Translation from file "
@@ -203,6 +208,10 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 				goto err2;
 			}
 
+			/*
+			 * Retrieve the name of the probe in the note section. Structure of
+			 * the data in the note is defined in the systemtap header sdt.h.
+			 */
 			char *note_probe_provider = cdata + desc_offset + dst.d_size;
 			note_probe_name = note_probe_provider + strlen(note_probe_provider) + 1;
 
