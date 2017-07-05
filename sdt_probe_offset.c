@@ -39,9 +39,9 @@ static long convert_addr_to_offset(Elf *elf_handle, size_t addr)
 	int text_section_found;
 	size_t text_section_offset, text_section_addr, offset_in_section;
 	char *section_name;
-	size_t section_index;
+	size_t section_idx;
 	Elf_Scn *elf_section;
-	GElf_Shdr elf_section_header;
+	GElf_Shdr elf_section_hdr;
 	
 	if (!elf_handle) {
 		fprintf (stderr , "Invalid ELF handle.\n");
@@ -49,7 +49,7 @@ static long convert_addr_to_offset(Elf *elf_handle, size_t addr)
 		goto err;
 	}	
 
-	ret = elf_getshdrstrndx(elf_handle, &section_index);
+	ret = elf_getshdrstrndx(elf_handle, &section_idx);
 	if (ret) {
 		fprintf(stderr, "ELF get header index failed: %s.\n", elf_errmsg(-1));
 		ret = -1; 
@@ -60,21 +60,24 @@ static long convert_addr_to_offset(Elf *elf_handle, size_t addr)
 	text_section_found = 0;
 
 	while((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
-		if (gelf_getshdr(elf_section, &elf_section_header) != &elf_section_header) {
-			fprintf(stderr, "GELF get section header failed: %s.\n", elf_errmsg(-1));
+		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
+			fprintf(stderr,
+				"GELF get section header failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
 			goto err;
 		}
 
-		if ((section_name = elf_strptr(elf_handle, section_index, elf_section_header.sh_name)) == NULL) {
-			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
+		section_name = elf_strptr(elf_handle, section_idx, elf_section_hdr.sh_name);
+		if (section_name == NULL) {
+			fprintf(stderr,
+				"ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
 			goto err;
 		}
 
 		if (strncmp(section_name, ".text", 5) == 0) {
-			text_section_offset = elf_section_header.sh_offset;
-			text_section_addr = elf_section_header.sh_addr;
+			text_section_offset = elf_section_hdr.sh_offset;
+			text_section_addr = elf_section_hdr.sh_addr;
 			text_section_found = 1;
 			break;
 		}
@@ -106,15 +109,16 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 {
 	long ret;
 	char *section_name;
-	char *name;
+	char *note_probe_name;
 	Elf *elf_handle;
-	size_t section_index;
+	size_t section_idx;
 	Elf_Scn *elf_section;
-	GElf_Shdr elf_section_header;
+	GElf_Shdr elf_section_hdr;
 	Elf_Data *elf_data;
 
 	if (elf_version(EV_CURRENT) == EV_NONE) {
-		fprintf(stderr, "ELF library initialization failed: %s.\n", elf_errmsg(-1));
+		fprintf(stderr,
+			"ELF library initialization failed: %s.\n", elf_errmsg(-1));
 		ret = -1;
 		goto err;
 	}
@@ -126,7 +130,7 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 		goto err;
 	}	
 
-	ret = elf_getshdrstrndx(elf_handle, &section_index);
+	ret = elf_getshdrstrndx(elf_handle, &section_idx);
 	if (ret) {
 		fprintf(stderr, "ELF get header index failed: %s.\n", elf_errmsg(-1));
 		ret = -1; 
@@ -137,14 +141,17 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 	elf_data = NULL;
 
 	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
-		if (gelf_getshdr(elf_section, &elf_section_header) != &elf_section_header) {
-			fprintf(stderr, "GELF get section header failed: %s.\n", elf_errmsg(-1));
+		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
+			fprintf(stderr,
+				"GELF get section header failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
 			goto err2;
 		}
 
-		if ((section_name = elf_strptr(elf_handle, section_index, elf_section_header.sh_name)) == NULL) {
-			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
+		section_name = elf_strptr(elf_handle, section_idx, elf_section_hdr.sh_name);
+		if (section_name == NULL) {
+			fprintf(stderr,
+				"ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
 			goto err2;
 		}
@@ -155,30 +162,31 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 
 		elf_data = elf_getdata(elf_section, NULL);
 
-		size_t next;
-		GElf_Nhdr nhdr;
+		size_t next_note;
+		GElf_Nhdr note_hdr;
 		size_t name_offset;
 		size_t desc_offset;
 
-		name = "";
+		note_probe_name = "";
 
-		for (size_t offset = 0;
-		  (next = gelf_getnote(elf_data, offset, &nhdr, &name_offset, &desc_offset)) > 0, strcmp(name, probe_name) != 0;
-		  offset = next) {
+		for (size_t note_offset = 0;
+			(next_note = gelf_getnote(elf_data, note_offset, &note_hdr, &name_offset, &desc_offset)) > 0,
+			strcmp(note_probe_name, probe_name) != 0;
+			note_offset = next_note) {
 			char *cdata = (char*)elf_data->d_buf;
 
 			/*
 			 * System is assumed to be 64 bit.
 			 * TODO Add support for 32 bit systems
 			 */
-			Elf64_Addr buf[3];
+			Elf64_Addr probe_data[3];
 
 			Elf_Data dst = {
-				&buf, ELF_T_ADDR, EV_CURRENT,
+				&probe_data, ELF_T_ADDR, EV_CURRENT,
 				gelf_fsize(elf_handle, ELF_T_ADDR, 3, EV_CURRENT), 0, 0
 			};
 
-			if (nhdr.n_descsz < dst.d_size + 3) {
+			if (note_hdr.n_descsz < dst.d_size + 3) {
 				continue;
 			}
 
@@ -187,17 +195,21 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 				dst.d_size, 0, 0
 			};
 
-			if (gelf_xlatetom(elf_handle, &dst, &src, elf_getident(elf_handle, NULL)[EI_DATA]) == NULL) {
-				fprintf(stderr, "GELF Translation from file to memory representation failed: %s.\n", elf_errmsg(-1));
+			char *elf_format = elf_getident(elf_handle, NULL);
+			if (gelf_xlatetom(elf_handle, &dst, &src, elf_format[EI_DATA]) == NULL) {
+				fprintf(stderr, "GELF Translation from file "
+					"to memory representation failed: %s.\n", elf_errmsg(-1));
 				ret = -1;
 				goto err2;
 			}
 
-			char *provider = cdata + desc_offset + dst.d_size;
-			name = provider + strlen(provider) + 1;
-			
-			if ((ret = convert_addr_to_offset(elf_handle, buf[0])) == -1) {
-				fprintf(stderr, "Conversion from address to offset in binary failed. Address: %lu\n", buf[0]);
+			char *note_probe_provider = cdata + desc_offset + dst.d_size;
+			note_probe_name = note_probe_provider + strlen(note_probe_provider) + 1;
+
+			ret = convert_addr_to_offset(elf_handle, probe_data[0]);
+			if (ret == -1) {
+				fprintf(stderr,	"Conversion from address "
+					"to offset in binary failed. Address: %lu\n", probe_data[0]);
 				ret = -1;
 				goto err2;
 			}
