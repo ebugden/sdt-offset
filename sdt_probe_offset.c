@@ -108,6 +108,8 @@ err:
 long get_sdt_probe_offset(int fd, char *probe_name)
 {
 	long ret;
+	int stap_note_section_found;
+	int probe_found;
 	char *section_name;
 	char *note_probe_name;
 	Elf *elf_handle;
@@ -145,6 +147,8 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 
 	elf_section = NULL;
 	elf_data = NULL;
+	stap_note_section_found = 0;
+	probe_found = 0;
 
 	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
 		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
@@ -166,6 +170,8 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 			continue;
 		}
 
+		stap_note_section_found = 1;
+
 		elf_data = elf_getdata(elf_section, NULL);
 		if (elf_data == NULL) {
 			fprintf(stderr, "ELF get data failed: %s.\n", elf_errmsg(-1));
@@ -181,8 +187,8 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 		note_probe_name = "";
 
 		for (size_t note_offset = 0;
-			(next_note = gelf_getnote(elf_data, note_offset, &note_hdr, &name_offset, &desc_offset)) > 0,
-			strcmp(note_probe_name, probe_name) != 0;
+			(next_note = gelf_getnote(elf_data, note_offset, &note_hdr, &name_offset, &desc_offset)) > 0
+			&& strcmp(note_probe_name, probe_name) != 0;
 			note_offset = next_note) {
 			char *cdata = (char*)elf_data->d_buf;
 
@@ -226,6 +232,12 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 			char *note_probe_provider = cdata + desc_offset + dst.d_size;
 			note_probe_name = note_probe_provider + strlen(note_probe_provider) + 1;
 
+			if (strcmp(note_probe_name, probe_name) != 0) {
+				continue;
+			}
+
+			probe_found = 1;
+
 			ret = convert_addr_to_offset(elf_handle, probe_data[0]);
 			if (ret == -1) {
 				fprintf(stderr,	"Conversion from address "
@@ -234,6 +246,17 @@ long get_sdt_probe_offset(int fd, char *probe_name)
 				goto err2;
 			}
 		}
+
+		if (!probe_found) {
+			fprintf(stderr, "No probe with name %s found.\n", probe_name);
+			ret = -1;
+			goto err2;
+		}
+	}
+
+	if (!stap_note_section_found) {
+		fprintf(stderr, ".note.stapsdt not found in binary. No SDT probes.\n");
+		ret = -1;
 	}
 
 err2:
