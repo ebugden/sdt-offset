@@ -21,3 +21,5 @@
 
 long get_sdt_probe_offset(int fd, char *probe_name);
 
+long elf_get_function_offset(int fd, char *func_name);
+

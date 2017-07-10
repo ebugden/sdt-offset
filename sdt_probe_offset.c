@@ -265,3 +265,118 @@ err:
 	return ret;
 }
 
+long elf_get_function_offset(int fd, char *func_name)
+{
+	long ret;
+	char *section_name;
+	Elf *elf_handle;
+	size_t section_idx;
+	Elf_Scn *elf_section;
+	GElf_Shdr elf_section_hdr;
+	Elf_Data *elf_data;
+	GElf_Sym sym;
+	char *sym_name;
+	int sym_count;
+
+	if (func_name == NULL) {
+		fprintf(stderr, "Invalid function name.\n");
+		ret = -1;
+		goto err;
+	}
+
+	if (elf_version(EV_CURRENT) == EV_NONE) {
+		fprintf(stderr, "ELF library initialization failed: %s.\n",
+			elf_errmsg(-1));
+		ret = -1;
+		goto err;
+	}
+
+	elf_handle = elf_begin(fd, ELF_C_READ, NULL);
+	if (!elf_handle) {
+		fprintf (stderr , "elf_begin() failed: %s.\n" , elf_errmsg (-1));
+		ret = -1;
+		goto err;
+	}
+
+	ret = elf_getshdrstrndx(elf_handle, &section_idx);
+	if (ret) {
+		fprintf(stderr, "ELF get header index failed: %s.\n", elf_errmsg(-1));
+		ret = -1;
+		goto err2;
+	}
+
+	elf_section = NULL;
+	elf_data = NULL;
+
+	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
+		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
+			fprintf(stderr,	"GELF get section header failed: %s.\n",
+				elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
+
+		if (elf_section_hdr.sh_type != SHT_SYMTAB) {
+			continue;
+		}
+
+		section_name = elf_strptr(elf_handle, section_idx, elf_section_hdr.sh_name);
+		if (section_name == NULL) {
+			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n",
+				elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
+
+		elf_data = elf_getdata(elf_section, NULL);
+		if (elf_data == NULL) {
+			fprintf(stderr, "ELF get data failed: %s.\n", elf_errmsg(-1));
+			ret = -1;
+			goto err2;
+		}
+
+		sym_count = elf_section_hdr.sh_size / elf_section_hdr.sh_entsize;
+		sym_name = NULL;
+
+		for (int sym_idx = 0; sym_idx < sym_count; sym_idx++) {
+			if (gelf_getsym(elf_data, sym_idx, &sym) == NULL) {
+				fprintf(stderr, "GELF get symbol failed: %s.\n",
+					elf_errmsg(-1));
+				ret = -1;
+				goto err2;
+			}
+
+			sym_name = elf_strptr(elf_handle, elf_section_hdr.sh_link, sym.st_name);
+			if (sym_name == NULL) {
+				fprintf(stderr, "ELF retrieve string pointer failed: %s.\n",
+					elf_errmsg(-1));
+				ret = -1;
+				goto err2;
+			}
+
+			if (strcmp(sym_name, func_name) == 0) {
+				break;
+			}
+		}
+
+		if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC) {
+			fprintf(stderr, "Requested symbol %s does not refer to a "
+				"function.\n", func_name);
+			ret = -1;
+			goto err2;
+		}
+
+		ret = convert_addr_to_offset(elf_handle, sym.st_value);
+		if (ret == -1) {
+			fprintf(stderr, "Conversion from address to offset in binary "
+				"failed. Address: %lu\n", sym.st_value);
+			ret = -1;
+			goto err2;
+		}
+	}
+
+err2:
+	elf_end(elf_handle);
+err:
+	return ret;
+}
