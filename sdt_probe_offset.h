@@ -19,7 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-long get_sdt_probe_offset(int fd, char *probe_name);
+long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name);
 
 long elf_get_function_offset(int fd, char *func_name);
 
