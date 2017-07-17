@@ -156,8 +156,6 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 	elf_section = NULL;
 	elf_data = NULL;
 	stap_note_section_found = 0;
-	probe_provider_found = 0;
-	probe_name_found = 0;
 
 	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
 		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
@@ -195,6 +193,8 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 
 		note_probe_provider = "";
 		note_probe_name = "";
+		probe_provider_found = 0;
+		probe_name_found = 0;
 
 		for (size_t note_offset = 0;
 			(next_note = gelf_getnote(elf_data, note_offset, &note_hdr, &name_offset, &desc_offset)) > 0
