@@ -281,6 +281,7 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 	if (!stap_note_section_found) {
 		fprintf(stderr, ".note.stapsdt not found in binary. No SDT probes.\n");
 		ret = -1;
+		goto err2;
 	}
 
 err2:
@@ -292,6 +293,8 @@ err:
 long elf_get_function_offset(int fd, char *func_name)
 {
 	long ret;
+	int sym_table_found;
+	int sym_found;
 	char *section_name;
 	Elf *elf_handle;
 	size_t section_idx;
@@ -331,6 +334,7 @@ long elf_get_function_offset(int fd, char *func_name)
 
 	elf_section = NULL;
 	elf_data = NULL;
+	sym_table_found = 0;
 
 	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
 		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
@@ -343,6 +347,8 @@ long elf_get_function_offset(int fd, char *func_name)
 		if (elf_section_hdr.sh_type != SHT_SYMTAB) {
 			continue;
 		}
+
+		sym_table_found = 1;
 
 		section_name = elf_strptr(elf_handle, section_idx, elf_section_hdr.sh_name);
 		if (section_name == NULL) {
@@ -361,6 +367,7 @@ long elf_get_function_offset(int fd, char *func_name)
 
 		sym_count = elf_section_hdr.sh_size / elf_section_hdr.sh_entsize;
 		sym_name = NULL;
+		sym_found = 0;
 
 		for (int sym_idx = 0; sym_idx < sym_count; sym_idx++) {
 			if (gelf_getsym(elf_data, sym_idx, &sym) == NULL) {
@@ -379,8 +386,16 @@ long elf_get_function_offset(int fd, char *func_name)
 			}
 
 			if (strcmp(sym_name, func_name) == 0) {
+				sym_found = 1;
 				break;
 			}
+		}
+
+		if (!sym_found) {
+			fprintf(stderr, "Requested symbol %s does not exist in symbol "
+				"table.\n", func_name);
+			ret = -1;
+			goto err2;
 		}
 
 		if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC) {
@@ -397,6 +412,12 @@ long elf_get_function_offset(int fd, char *func_name)
 			ret = -1;
 			goto err2;
 		}
+	}
+
+	if (!sym_table_found) {
+		fprintf(stderr, "No symbol table in binary.\n");
+		ret = -1;
+		goto err2;
 	}
 
 err2:
