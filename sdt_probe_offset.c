@@ -27,6 +27,16 @@
 #include <unistd.h>
 #include "sdt_probe_offset.h"
 
+#define TEXT_SECTION_NAME ".text"
+#define NOTE_STAPSDT_STR ".note.stapsdt"
+
+/*
+ * Default value of MAXSTRINGLEN in SystemTap is 128 but this value can be
+ * changed by the user.
+ */
+#define MAX_STR_LEN 128
+#define ARRAY_LEN(a) sizeof(a)/sizeof(a[0])
+
 /*
  * Convert the virtual address in binary to the offset of the instruction in the
  * binary file.
@@ -60,7 +70,7 @@ static long convert_addr_to_offset(Elf *elf_handle, size_t addr)
 	text_section_found = 0;
 
 	while((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
-		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
+		if (gelf_getshdr(elf_section, &elf_section_hdr) == NULL) {
 			fprintf(stderr,
 				"GELF get section header failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
@@ -75,7 +85,7 @@ static long convert_addr_to_offset(Elf *elf_handle, size_t addr)
 			goto err;
 		}
 
-		if (strncmp(section_name, ".text", 5) == 0) {
+		if (strncmp(section_name, TEXT_SECTION_NAME, sizeof(TEXT_SECTION_NAME)) == 0) {
 			text_section_offset = elf_section_hdr.sh_offset;
 			text_section_addr = elf_section_hdr.sh_addr;
 			text_section_found = 1;
@@ -108,17 +118,13 @@ err:
 long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 {
 	long ret;
-	int stap_note_section_found;
-	int probe_provider_found;
-	int probe_name_found;
-	char *section_name;
-	char *note_probe_provider;
-	char *note_probe_name;
+	int stap_note_section_found, probe_provider_found, probe_name_found;
+	char *section_name, *note_probe_provider, *note_probe_name;
 	Elf *elf_handle;
 	size_t section_idx;
 	Elf_Scn *elf_section;
 	GElf_Shdr elf_section_hdr;
-	Elf_Data *elf_data;
+	Elf_Data *elf_section_data_desc;
 
 	if (probe_provider == NULL) {
 		fprintf(stderr, "Invalid probe provider.\n");
@@ -154,11 +160,34 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 	}
 
 	elf_section = NULL;
-	elf_data = NULL;
+	elf_section_data_desc = NULL;
 	stap_note_section_found = 0;
 
+	/*
+	 * Search ELF sections for stap note section which contains probe
+	 * descriptions.
+	 */
 	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
-		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
+		size_t next_note, note_offset, note_name_offset, note_desc_offset,
+			size_probe_data;
+		char *section_data_ptr, *elf_format;
+		GElf_Nhdr note_hdr;
+
+		/*
+		 * System is assumed to be 64 bit.
+		 * TODO Add support for 32 bit systems
+		 * TODO Change probe_data array to probe_addr and only translate the
+		 * address
+		 */
+		Elf64_Addr probe_data[3];
+
+		/*
+		 * Will contain the in-file and in-memory representations of the probe
+		 * data.
+		 */
+		Elf_Data probe_data_in_file, probe_data_in_mem;
+
+		if (gelf_getshdr(elf_section, &elf_section_hdr) == NULL) {
 			fprintf(stderr,
 				"GELF get section header failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
@@ -173,62 +202,60 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 			goto err2;
 		}
 
-		if (strcmp(section_name, ".note.stapsdt") != 0) {
+		if (strncmp(section_name, NOTE_STAPSDT_STR, sizeof(NOTE_STAPSDT_STR)) != 0) {
 			continue;
 		}
 
 		stap_note_section_found = 1;
 
-		elf_data = elf_getdata(elf_section, NULL);
-		if (elf_data == NULL) {
+		elf_section_data_desc = elf_getdata(elf_section, NULL);
+		if (elf_section_data_desc == NULL) {
 			fprintf(stderr, "ELF get data failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
 			goto err2;
 		}
 
-		size_t next_note;
-		GElf_Nhdr note_hdr;
-		size_t name_offset;
-		size_t desc_offset;
+		size_probe_data = gelf_fsize(elf_handle, ELF_T_ADDR,
+			ARRAY_LEN(probe_data), EV_CURRENT);
 
-		note_probe_provider = "";
-		note_probe_name = "";
+		probe_data_in_mem.d_buf = &probe_data;
+		probe_data_in_mem.d_type = ELF_T_ADDR;
+		probe_data_in_mem.d_version = EV_CURRENT;
+		probe_data_in_mem.d_size = size_probe_data;
+
+		probe_data_in_file.d_buf = NULL;
+		probe_data_in_file.d_type = ELF_T_ADDR;
+		probe_data_in_file.d_version = EV_CURRENT;
+		probe_data_in_file.d_size = probe_data_in_mem.d_size;
+
+		section_data_ptr = (char*)elf_section_data_desc->d_buf;
+		note_offset = 0;
 		probe_provider_found = 0;
 		probe_name_found = 0;
+		note_probe_provider = "";
+		note_probe_name = "";
+		next_note = gelf_getnote(elf_section_data_desc, note_offset, &note_hdr,
+			&note_name_offset, &note_desc_offset);
 
-		for (size_t note_offset = 0;
-			(next_note = gelf_getnote(elf_data, note_offset, &note_hdr, &name_offset, &desc_offset)) > 0
-			&& (strcmp(note_probe_provider, probe_provider) != 0 || strcmp(note_probe_name, probe_name) != 0);
-			note_offset = next_note) {
-			char *cdata = (char*)elf_data->d_buf;
-
+		/*
+		 * Search in the stap note section for a probe description matching the
+		 * requested probe provider and probe name.
+		 */
+		while (next_note > 0) {
 			/*
-			 * System is assumed to be 64 bit.
-			 * TODO Add support for 32 bit systems
+			 * Set source of data to be translated to the beginning of the
+			 * current note's data.
 			 */
-			Elf64_Addr probe_data[3];
-
-			Elf_Data dst = {
-				&probe_data, ELF_T_ADDR, EV_CURRENT,
-				gelf_fsize(elf_handle, ELF_T_ADDR, 3, EV_CURRENT), 0, 0
-			};
-
-			if (note_hdr.n_descsz < dst.d_size + 3) {
-				continue;
-			}
-
-			Elf_Data src = {
-				cdata + desc_offset, ELF_T_ADDR, EV_CURRENT,
-				dst.d_size, 0, 0
-			};
+			probe_data_in_file.d_buf = section_data_ptr + note_desc_offset;
 
 			/*
 			 * Translate ELF data to in-memory representation in order to
 			 * respect byte ordering and data alignment restrictions
 			 * of the host processor.
 			 */
-			char *elf_format = elf_getident(elf_handle, NULL);
-			if (gelf_xlatetom(elf_handle, &dst, &src, elf_format[EI_DATA]) == NULL) {
+			elf_format = elf_getident(elf_handle, NULL);
+			if (gelf_xlatetom(elf_handle, &probe_data_in_mem, &probe_data_in_file,
+				elf_format[EI_DATA]) == NULL) {
 				fprintf(stderr, "GELF Translation from file "
 					"to memory representation failed: %s.\n", elf_errmsg(-1));
 				ret = -1;
@@ -240,28 +267,24 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 			 * Structure of the data in the note is defined in the systemtap
 			 * header sdt.h.
 			 */
-			note_probe_provider = cdata + desc_offset + dst.d_size;
+			note_probe_provider = section_data_ptr + note_desc_offset
+				+ probe_data_in_mem.d_size;
 			note_probe_name = note_probe_provider + strlen(note_probe_provider) + 1;
 
-			if (strcmp(note_probe_provider, probe_provider) != 0) {
-				continue;
+			if (strncmp(note_probe_provider, probe_provider, strnlen(probe_provider,
+				MAX_STR_LEN)) == 0) {
+				probe_provider_found = 1;
+
+				if (strncmp(note_probe_name, probe_name, strnlen(probe_name,
+					MAX_STR_LEN)) == 0) {
+					probe_name_found = 1;
+					break;
+				}
 			}
 
-			probe_provider_found = 1;
-
-			if (strcmp(note_probe_name, probe_name) != 0) {
-				continue;
-			}
-
-			probe_name_found = 1;
-
-			ret = convert_addr_to_offset(elf_handle, probe_data[0]);
-			if (ret == -1) {
-				fprintf(stderr,	"Conversion from address to offset in binary "
-					"failed. Address: %lu\n", probe_data[0]);
-				ret = -1;
-				goto err2;
-			}
+			note_offset = next_note;
+			next_note = gelf_getnote(elf_section_data_desc, note_offset,
+				&note_hdr, &note_name_offset, &note_desc_offset);
 		}
 
 		if (!probe_provider_found) {
@@ -276,10 +299,19 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 			ret = -1;
 			goto err2;
 		}
+
+		ret = convert_addr_to_offset(elf_handle, probe_data[0]);
+		if (ret == -1) {
+			fprintf(stderr,	"Conversion from address to offset in binary "
+				"failed. Address: %lu\n", probe_data[0]);
+			ret = -1;
+			goto err2;
+		}
 	}
 
 	if (!stap_note_section_found) {
-		fprintf(stderr, ".note.stapsdt not found in binary. No SDT probes.\n");
+		fprintf(stderr, "%s not found in binary. No SDT probes.\n",
+			NOTE_STAPSDT_STR);
 		ret = -1;
 		goto err2;
 	}
@@ -293,17 +325,14 @@ err:
 long elf_get_function_offset(int fd, char *func_name)
 {
 	long ret;
-	int sym_table_found;
-	int sym_found;
-	char *section_name;
+	char *section_name, *sym_name;
 	Elf *elf_handle;
 	size_t section_idx;
 	Elf_Scn *elf_section;
 	GElf_Shdr elf_section_hdr;
-	Elf_Data *elf_data;
+	Elf_Data *elf_section_data_desc;
 	GElf_Sym sym;
-	char *sym_name;
-	int sym_count;
+	int sym_table_found, sym_found, sym_count;
 
 	if (func_name == NULL) {
 		fprintf(stderr, "Invalid function name.\n");
@@ -333,11 +362,16 @@ long elf_get_function_offset(int fd, char *func_name)
 	}
 
 	elf_section = NULL;
-	elf_data = NULL;
+	elf_section_data_desc = NULL;
 	sym_table_found = 0;
 
+	/*
+	 * Loop over ELF sections to find symbol table.
+	 */
 	while ((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
-		if (gelf_getshdr(elf_section, &elf_section_hdr) != &elf_section_hdr) {
+		int sym_idx;
+
+		if (gelf_getshdr(elf_section, &elf_section_hdr) == NULL) {
 			fprintf(stderr,	"GELF get section header failed: %s.\n",
 				elf_errmsg(-1));
 			ret = -1;
@@ -358,8 +392,8 @@ long elf_get_function_offset(int fd, char *func_name)
 			goto err2;
 		}
 
-		elf_data = elf_getdata(elf_section, NULL);
-		if (elf_data == NULL) {
+		elf_section_data_desc = elf_getdata(elf_section, NULL);
+		if (elf_section_data_desc == NULL) {
 			fprintf(stderr, "ELF get data failed: %s.\n", elf_errmsg(-1));
 			ret = -1;
 			goto err2;
@@ -369,8 +403,12 @@ long elf_get_function_offset(int fd, char *func_name)
 		sym_name = NULL;
 		sym_found = 0;
 
-		for (int sym_idx = 0; sym_idx < sym_count; sym_idx++) {
-			if (gelf_getsym(elf_data, sym_idx, &sym) == NULL) {
+		/*
+		 * Loop over all symbols in symbol table and compare them against
+		 * the requested symbol.
+		 */
+		for (sym_idx = 0; sym_idx < sym_count; sym_idx++) {
+			if (gelf_getsym(elf_section_data_desc, sym_idx, &sym) == NULL) {
 				fprintf(stderr, "GELF get symbol failed: %s.\n",
 					elf_errmsg(-1));
 				ret = -1;
