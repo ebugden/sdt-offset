@@ -54,7 +54,7 @@ static long convert_addr_to_offset(Elf *elf_handle, size_t addr)
 	GElf_Shdr elf_section_hdr;
 	
 	if (!elf_handle) {
-		fprintf (stderr , "Invalid ELF handle.\n");
+		fprintf (stderr, "Invalid ELF handle.\n");
 		ret = -1; 
 		goto err;
 	}	
@@ -71,16 +71,16 @@ static long convert_addr_to_offset(Elf *elf_handle, size_t addr)
 
 	while((elf_section = elf_nextscn(elf_handle, elf_section)) != NULL) {
 		if (gelf_getshdr(elf_section, &elf_section_hdr) == NULL) {
-			fprintf(stderr,
-				"GELF get section header failed: %s.\n", elf_errmsg(-1));
+			fprintf(stderr, "GELF get section header failed: %s.\n",
+					elf_errmsg(-1));
 			ret = -1;
 			goto err;
 		}
 
 		section_name = elf_strptr(elf_handle, section_idx, elf_section_hdr.sh_name);
 		if (section_name == NULL) {
-			fprintf(stderr,
-				"ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
+			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n",
+					elf_errmsg(-1));
 			ret = -1;
 			goto err;
 		}
@@ -139,15 +139,15 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 	}
 
 	if (elf_version(EV_CURRENT) == EV_NONE) {
-		fprintf(stderr,
-			"ELF library initialization failed: %s.\n", elf_errmsg(-1));
+		fprintf(stderr, "ELF library initialization failed: %s.\n",
+				elf_errmsg(-1));
 		ret = -1;
 		goto err;
 	}
 
 	elf_handle = elf_begin(fd, ELF_C_READ, NULL);
 	if (!elf_handle) {
-		fprintf (stderr , "elf_begin() failed: %s.\n" , elf_errmsg (-1));
+		fprintf (stderr, "elf_begin() failed: %s.\n", elf_errmsg (-1));
 		ret = -1; 
 		goto err;
 	}	
@@ -188,16 +188,16 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 		Elf_Data probe_data_in_file, probe_data_in_mem;
 
 		if (gelf_getshdr(elf_section, &elf_section_hdr) == NULL) {
-			fprintf(stderr,
-				"GELF get section header failed: %s.\n", elf_errmsg(-1));
+			fprintf(stderr, "GELF get section header failed: %s.\n",
+					elf_errmsg(-1));
 			ret = -1;
 			goto err2;
 		}
 
 		section_name = elf_strptr(elf_handle, section_idx, elf_section_hdr.sh_name);
 		if (section_name == NULL) {
-			fprintf(stderr,
-				"ELF retrieve string pointer failed: %s.\n", elf_errmsg(-1));
+			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n",
+					elf_errmsg(-1));
 			ret = -1;
 			goto err2;
 		}
@@ -216,7 +216,7 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 		}
 
 		size_probe_data = gelf_fsize(elf_handle, ELF_T_ADDR,
-			ARRAY_LEN(probe_data), EV_CURRENT);
+										ARRAY_LEN(probe_data), EV_CURRENT);
 
 		probe_data_in_mem.d_buf = &probe_data;
 		probe_data_in_mem.d_type = ELF_T_ADDR;
@@ -228,14 +228,14 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 		probe_data_in_file.d_version = EV_CURRENT;
 		probe_data_in_file.d_size = probe_data_in_mem.d_size;
 
-		section_data_ptr = (char*)elf_section_data_desc->d_buf;
+		section_data_ptr = (char*) elf_section_data_desc->d_buf;
 		note_offset = 0;
 		probe_provider_found = 0;
 		probe_name_found = 0;
 		note_probe_provider = "";
 		note_probe_name = "";
 		next_note = gelf_getnote(elf_section_data_desc, note_offset, &note_hdr,
-			&note_name_offset, &note_desc_offset);
+									&note_name_offset, &note_desc_offset);
 
 		/*
 		 * Search in the stap note section for a probe description matching the
@@ -255,9 +255,9 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 			 */
 			elf_format = elf_getident(elf_handle, NULL);
 			if (gelf_xlatetom(elf_handle, &probe_data_in_mem, &probe_data_in_file,
-				elf_format[EI_DATA]) == NULL) {
-				fprintf(stderr, "GELF Translation from file "
-					"to memory representation failed: %s.\n", elf_errmsg(-1));
+								elf_format[EI_DATA]) == NULL) {
+				fprintf(stderr, "GELF Translation from file to memory "
+								"representation failed: %s.\n", elf_errmsg(-1));
 				ret = -1;
 				goto err2;
 			}
@@ -268,15 +268,14 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 			 * header sdt.h.
 			 */
 			note_probe_provider = section_data_ptr + note_desc_offset
-				+ probe_data_in_mem.d_size;
-			note_probe_name = note_probe_provider + strlen(note_probe_provider) + 1;
+									+ probe_data_in_mem.d_size;
+			note_probe_name = note_probe_provider + strlen(note_probe_provider)
+								+ 1;
 
-			if (strncmp(note_probe_provider, probe_provider, strnlen(probe_provider,
-				MAX_STR_LEN)) == 0) {
+			if (strncmp(note_probe_provider, probe_provider, MAX_STR_LEN) == 0) {
 				probe_provider_found = 1;
 
-				if (strncmp(note_probe_name, probe_name, strnlen(probe_name,
-					MAX_STR_LEN)) == 0) {
+				if (strncmp(note_probe_name, probe_name, MAX_STR_LEN) == 0) {
 					probe_name_found = 1;
 					break;
 				}
@@ -284,7 +283,7 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 
 			note_offset = next_note;
 			next_note = gelf_getnote(elf_section_data_desc, note_offset,
-				&note_hdr, &note_name_offset, &note_desc_offset);
+										&note_hdr, &note_name_offset, &note_desc_offset);
 		}
 
 		if (!probe_provider_found) {
@@ -295,7 +294,7 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 
 		if (!probe_name_found) {
 			fprintf(stderr, "No probe with name %s found for provider %s.\n",
-				probe_name, probe_provider);
+					probe_name, probe_provider);
 			ret = -1;
 			goto err2;
 		}
@@ -303,7 +302,7 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 		ret = convert_addr_to_offset(elf_handle, probe_data[0]);
 		if (ret == -1) {
 			fprintf(stderr,	"Conversion from address to offset in binary "
-				"failed. Address: %lu\n", probe_data[0]);
+							"failed. Address: %lu\n", probe_data[0]);
 			ret = -1;
 			goto err2;
 		}
@@ -311,7 +310,7 @@ long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name)
 
 	if (!stap_note_section_found) {
 		fprintf(stderr, "%s not found in binary. No SDT probes.\n",
-			NOTE_STAPSDT_STR);
+				NOTE_STAPSDT_STR);
 		ret = -1;
 		goto err2;
 	}
@@ -342,14 +341,14 @@ long elf_get_function_offset(int fd, char *func_name)
 
 	if (elf_version(EV_CURRENT) == EV_NONE) {
 		fprintf(stderr, "ELF library initialization failed: %s.\n",
-			elf_errmsg(-1));
+				elf_errmsg(-1));
 		ret = -1;
 		goto err;
 	}
 
 	elf_handle = elf_begin(fd, ELF_C_READ, NULL);
 	if (!elf_handle) {
-		fprintf (stderr , "elf_begin() failed: %s.\n" , elf_errmsg (-1));
+		fprintf (stderr, "elf_begin() failed: %s.\n", elf_errmsg (-1));
 		ret = -1;
 		goto err;
 	}
@@ -373,7 +372,7 @@ long elf_get_function_offset(int fd, char *func_name)
 
 		if (gelf_getshdr(elf_section, &elf_section_hdr) == NULL) {
 			fprintf(stderr,	"GELF get section header failed: %s.\n",
-				elf_errmsg(-1));
+					elf_errmsg(-1));
 			ret = -1;
 			goto err2;
 		}
@@ -387,7 +386,7 @@ long elf_get_function_offset(int fd, char *func_name)
 		section_name = elf_strptr(elf_handle, section_idx, elf_section_hdr.sh_name);
 		if (section_name == NULL) {
 			fprintf(stderr, "ELF retrieve string pointer failed: %s.\n",
-				elf_errmsg(-1));
+					elf_errmsg(-1));
 			ret = -1;
 			goto err2;
 		}
@@ -410,20 +409,21 @@ long elf_get_function_offset(int fd, char *func_name)
 		for (sym_idx = 0; sym_idx < sym_count; sym_idx++) {
 			if (gelf_getsym(elf_section_data_desc, sym_idx, &sym) == NULL) {
 				fprintf(stderr, "GELF get symbol failed: %s.\n",
-					elf_errmsg(-1));
+						elf_errmsg(-1));
 				ret = -1;
 				goto err2;
 			}
 
-			sym_name = elf_strptr(elf_handle, elf_section_hdr.sh_link, sym.st_name);
+			sym_name = elf_strptr(elf_handle, elf_section_hdr.sh_link,
+									sym.st_name);
 			if (sym_name == NULL) {
 				fprintf(stderr, "ELF retrieve string pointer failed: %s.\n",
-					elf_errmsg(-1));
+						elf_errmsg(-1));
 				ret = -1;
 				goto err2;
 			}
 
-			if (strcmp(sym_name, func_name) == 0) {
+			if (strncmp(sym_name, func_name, MAX_STR_LEN) == 0) {
 				sym_found = 1;
 				break;
 			}
@@ -431,14 +431,14 @@ long elf_get_function_offset(int fd, char *func_name)
 
 		if (!sym_found) {
 			fprintf(stderr, "Requested symbol %s does not exist in symbol "
-				"table.\n", func_name);
+							"table.\n", func_name);
 			ret = -1;
 			goto err2;
 		}
 
 		if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC) {
 			fprintf(stderr, "Requested symbol %s does not refer to a "
-				"function.\n", func_name);
+							"function.\n", func_name);
 			ret = -1;
 			goto err2;
 		}
@@ -446,7 +446,7 @@ long elf_get_function_offset(int fd, char *func_name)
 		ret = convert_addr_to_offset(elf_handle, sym.st_value);
 		if (ret == -1) {
 			fprintf(stderr, "Conversion from address to offset in binary "
-				"failed. Address: %lu\n", sym.st_value);
+							"failed. Address: %lu\n", sym.st_value);
 			ret = -1;
 			goto err2;
 		}
