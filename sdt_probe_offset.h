@@ -24,16 +24,17 @@
  * ELF executable. The fd parameter must be a valid file descriptor that refers
  * to an open ELF executable.
  *
- * Returns the offset on success. Returns -1 if there is an error.
+ * Returns the offset on success. Returns -1 if an error occurred.
  */
-long get_sdt_probe_offset(int fd, char *probe_provider, char *probe_name);
+long get_sdt_probe_offset(int fd, const char *probe_provider,
+		const char *probe_name);
 
 /*
  * Determines the offset of a specified function name in the specified
  * ELF executable. The fd parameter must be a valid file descriptor that refers
  * to an open ELF executable.
  *
- * Returns the offset on success. Returns -1 if there is an error.
+ * Returns the offset on success. Returns -1 if an error occurred.
  */
-long elf_get_function_offset(int fd, char *func_name);
+long elf_get_function_offset(int fd, const char *func_name);
 
